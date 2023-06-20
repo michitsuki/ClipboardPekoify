@@ -1,6 +1,8 @@
 # ClipboardPekoify
 pekoifies all text copied to clipboard and sits resident in system tray
 
+Pre-combiled binaries are available in releases.
+
 # Features
 * Pekoifies all text copied to clipboard
 * Supports Japanese
