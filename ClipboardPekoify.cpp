@@ -29,7 +29,6 @@ void ModifyClipboardText()
 {
     if (!OpenClipboard(nullptr))
     {
-        std::cout << "Failed to open the clipboard." << std::endl;
         return;
     }
 
@@ -37,7 +36,6 @@ void ModifyClipboardText()
     HANDLE hData = GetClipboardData(CF_UNICODETEXT);
     if (hData == nullptr)
     {
-        std::cout << "Failed to retrieve clipboard data." << std::endl;
         CloseClipboard();
         return;
     }
@@ -46,7 +44,6 @@ void ModifyClipboardText()
     LPWSTR pData = static_cast<LPWSTR>(GlobalLock(hData));
     if (pData == nullptr)
     {
-        std::cout << "Failed to lock clipboard data." << std::endl;
         CloseClipboard();
         return;
     }
@@ -54,12 +51,10 @@ void ModifyClipboardText()
     // Disable pekoifying for links (strings like http*)
     if (!mangleLinks) {
         if (pData[0] == L'h' && pData[1] == L't' && pData[2] == L't' && pData[3] == L'p') {
-			std::cout << "Clipboard text is a link, skipping." << std::endl;
             CloseClipboard();
 			return;
 		}
 		else if (pData[0] == L'H' && pData[1] == L'T' && pData[2] == L'T' && pData[3] == L'P') {
-			std::cout << "Clipboard text is a link, skipping." << std::endl;
             CloseClipboard();
 			return;
 		}
@@ -132,18 +127,14 @@ void ModifyClipboardText()
 
                 EmptyClipboard();
                 SetClipboardData(CF_UNICODETEXT, hModifiedData);
-
-                std::cout << "Clipboard text modified successfully!" << std::endl;
             }
             else
             {
-                std::cout << "Failed to lock the memory for modified text." << std::endl;
                 GlobalFree(hModifiedData);
             }
         }
         else
         {
-            std::cout << "Failed to allocate memory for modified text." << std::endl;
         }
     }
 
@@ -157,9 +148,7 @@ void ModifyClipboardText()
 LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if (uMsg == WM_DRAWCLIPBOARD)
-    {
-        std::cout << "Clipboard content changed." << std::endl;
-        
+    {        
         if (enabled) {
             ModifyClipboardText();
         }
@@ -168,19 +157,6 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         SendMessage(hwndNextViewer, uMsg, wParam, lParam);
     }
     if (uMsg == WM_USER + 1) {
-        if (LOWORD(lParam) == WM_RBUTTONUP || LOWORD(lParam) == WM_LBUTTONUP) {
-            POINT lpClickPoint;
-            GetCursorPos(&lpClickPoint);
-            HMENU hPopMenu = CreatePopupMenu();
-            AppendMenu(hPopMenu, MF_STRING | MF_GRAYED, 900, L"pekoify");
-            AppendMenu(hPopMenu, MF_STRING, 800, enabled ? L"Disable" : L"Enable");
-            AppendMenu(hPopMenu, MF_STRING | (!mangleLinks ? MF_CHECKED : MF_UNCHECKED), 801, L"Ignore Links");
-            AppendMenu(hPopMenu, MF_SEPARATOR, 901, L"");
-            AppendMenu(hPopMenu, MF_STRING, 802, L"Exit");
-            SetForegroundWindow(hwnd);
-            TrackPopupMenu(hPopMenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_BOTTOMALIGN, lpClickPoint.x, lpClickPoint.y, 0, hwnd, NULL);
-            PostMessageW(hwnd, WM_NULL, 0, 0);
-        }
     }
 	if (uMsg == WM_COMMAND) {
 		switch (LOWORD(wParam)) {
@@ -207,8 +183,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR, int)
     HANDLE hMutex = CreateMutex(nullptr, TRUE, L"ClipboardPekoify");
    if (GetLastError() == ERROR_ALREADY_EXISTS)
 	{
-		std::cout << "Another instance of ClipboardPekoify is already running." << std::endl;
-        MessageBoxExW(NULL, L"Another instance of ClipboardPekoify is already running.", L"ClipboardPekoify", MB_OK | MB_ICONERROR, 0);
 		return 0;
 	}
 
@@ -223,18 +197,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR, int)
     hwndNextViewer = SetClipboardViewer(hwnd);
     SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ClipboardViewerProc));
 
-    // Create tray icon
-    nid.cbSize = sizeof(NOTIFYICONDATA);
-    nid.hWnd = hwnd;
-    nid.uID = 1;
-    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    nid.uCallbackMessage = WM_USER + 1;
-    nid.hIcon = LoadIcon(hInst, MAKEINTRESOURCEW(IDI_ICON1));
-    wcscpy_s(nid.szTip, L"ClipboardPekoify");
-    Shell_NotifyIcon(NIM_ADD, &nid);
-
-    std::cout << "Completed setup, preparing to enter main loop." << std::endl;
-    MessageBoxExW(NULL, L"ClipboardPekoify is now running in the background.\n\nRight click the tray icon to access the menu.", L"ClipboardPekoify", MB_OK | MB_ICONINFORMATION, 0);
     // Enter the message loop
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0))
