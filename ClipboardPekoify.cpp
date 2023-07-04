@@ -40,7 +40,6 @@ void ModifyClipboardText()
 {
 	if (!OpenClipboard(nullptr))
 	{
-		std::cout << "Failed to open the clipboard." << std::endl;
 		return;
 	}
 
@@ -48,7 +47,6 @@ void ModifyClipboardText()
 	HANDLE hData = GetClipboardData(CF_UNICODETEXT);
 	if (hData == nullptr)
 	{
-		std::cout << "Failed to retrieve clipboard data." << std::endl;
 		CloseClipboard();
 		return;
 	}
@@ -57,7 +55,6 @@ void ModifyClipboardText()
 	LPWSTR pData = static_cast<LPWSTR>(GlobalLock(hData));
 	if (pData == nullptr)
 	{
-		std::cout << "Failed to lock clipboard data." << std::endl;
 		CloseClipboard();
 		return;
 	}
@@ -65,7 +62,6 @@ void ModifyClipboardText()
 	// Disable pekoifying for links (strings like http*)
 	if (!mangleLinks) {
 		if (isLink(pData)) {
-			std::cout << "Clipboard text is a link." << std::endl;
 			CloseClipboard();
 			return;
 		}
