@@ -467,6 +467,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR, int)
 			   MessageBoxExW(NULL, LOC_INSTERRCOPYFILE, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
 			   return 1;
 		   }
+		   LPWSTR installedPath = path;
 		   // Create start menu shortcut
 		   wchar_t shortcutPath[MAX_PATH];
 		   if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, shortcutPath) != S_OK) {
@@ -526,7 +527,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR, int)
 		   // Destroy the mutex which will allow the new instance to run
 		   CloseHandle(hMutex);
 		   // Quit the current instance and restart from LocalAppData
-		   ShellExecuteW(NULL, L"open", path, NULL, NULL, SW_SHOW);
+		   ShellExecuteW(NULL, L"open", installedPath, NULL, NULL, SW_SHOW);
 		   return 0;
 	   }
 	   // If the user does not want to install, we 
