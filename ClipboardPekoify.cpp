@@ -4,13 +4,10 @@
 
 HWND hwndNextViewer;
 NOTIFYICONDATA nid;
-static const wchar_t* replace_en = L" peko";
-static const wchar_t* replace_jp = L"ぺこ";
-static const std::vector<std::wstring> prefixes{ L"http", L"ftp", L"irc", L"sftp", L"magnet" };
-// loose compares, http will match http* which includes https
 // MangleLinks - everything with no checks (default), dont mangle links (disabled)
 bool enabled = true;
 bool mangleLinks = true;
+bool installed = false;
 
 // Override so only punctuation that is generally seen at the end of a sentence is replaced
 bool ispunct(wchar_t c)
@@ -36,11 +33,145 @@ bool isLink(std::wstring text) {
 	return false;
 }
 
+// Checks if it launches on startup, if toggle is true it will toggle the setting
+// Checks ClipboardPekoify in HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+bool launchStartup(bool toggle) {
+	if (toggle) {
+		if (launchStartup(false)) {
+			// Delete the key
+			HKEY hKey;
+			LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hKey);
+			if (lRes != ERROR_SUCCESS) {
+				MessageBoxExW(NULL, LOC_UNKNOWNREGERR, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+				return false;
+			}
+			lRes = RegDeleteValueW(hKey, L"ClipboardPekoify");
+			if (lRes != ERROR_SUCCESS) {
+				MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+				return false;
+			}
+			RegCloseKey(hKey);
+		}
+		else {
+			// Create the key
+			HKEY hKey;
+			LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hKey);
+			if (lRes != ERROR_SUCCESS) {
+				MessageBoxExW(NULL, LOC_UNKNOWNREGERR, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+				return false;
+			}
+			wchar_t path[MAX_PATH];
+			if (GetModuleFileNameW(NULL, path, MAX_PATH) == 0) {
+				MessageBoxExW(NULL, LOC_UNKNOWNERR, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+				return false;
+			}
+			lRes = RegSetValueExW(hKey, L"ClipboardPekoify", 0, REG_SZ, reinterpret_cast<BYTE*>(path), (wcslen(path) + 1) * sizeof(wchar_t));
+			if (lRes != ERROR_SUCCESS) {
+				MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+				return false;
+			}
+			RegCloseKey(hKey);
+			return true;
+		}
+	}
+	else {
+		HKEY hKey;
+		LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hKey);
+		if (lRes != ERROR_SUCCESS) {
+			MessageBoxExW(NULL, LOC_UNKNOWNREGERR, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			return false;
+		}
+		DWORD dwType = REG_SZ;
+		DWORD dwSize = 255;
+		wchar_t path[255];
+		lRes = RegQueryValueExW(hKey, L"ClipboardPekoify", NULL, &dwType, reinterpret_cast<BYTE*>(path), &dwSize);
+		if (lRes != ERROR_SUCCESS) {
+			return false;
+		}
+		RegCloseKey(hKey);
+		if (wcscmp(path, L"") == 0) {
+			return false;
+		}
+		return true;
+	}
+	return false;
+}
+
+bool checkInstalled() {
+	HKEY hKey;
+	LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\ClipboardPekoify", 0, KEY_READ, &hKey);
+	if (lRes != ERROR_SUCCESS) {
+		return false;
+	}
+	// Check version, if running > registry, return false to update
+	DWORD dwType = REG_DWORD;
+	DWORD dwSize = sizeof(DWORD);
+	DWORD version;
+	lRes = RegQueryValueExW(hKey, L"Version", NULL, &dwType, reinterpret_cast<BYTE*>(&version), &dwSize);
+	if (lRes != ERROR_SUCCESS) {
+		return false;
+	}
+	if (version < PEKOIFY_VERSION) {
+		return false;
+	}
+	RegCloseKey(hKey);
+	return true;
+}
+
+// Writes MangleLinks and Enabled to the registry
+bool writeSettings() {
+	HKEY hKey;
+	LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\ClipboardPekoify", 0, KEY_WRITE, &hKey);
+	if (lRes != ERROR_SUCCESS) {
+		return false;
+	}
+	lRes = RegSetValueExW(hKey, L"MangleLinks", 0, REG_DWORD, reinterpret_cast<BYTE*>(&mangleLinks), sizeof(DWORD));
+	if (lRes != ERROR_SUCCESS) {
+		return false;
+	}
+	lRes = RegSetValueExW(hKey, L"Enabled", 0, REG_DWORD, reinterpret_cast<BYTE*>(&enabled), sizeof(DWORD));
+	if (lRes != ERROR_SUCCESS) {
+		return false;
+	}
+	BYTE version = PEKOIFY_VERSION;
+	lRes = RegSetValueExW(hKey, L"Version", 0, REG_DWORD, reinterpret_cast<BYTE*>(&version), sizeof(DWORD));
+	if (lRes != ERROR_SUCCESS) {
+		return false;
+	}
+
+	RegCloseKey(hKey);
+	return true;
+}
+
+// Reads MangleLinks and Enabled from the registry, if they dont exist they are set to true
+// After installation, they will not exist and will be set when the user makes a change
+bool readSettings() {
+	HKEY hKey;
+	LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\ClipboardPekoify", 0, KEY_READ, &hKey);
+	if (lRes != ERROR_SUCCESS) {
+		return false;
+	}
+	DWORD dwType = REG_DWORD;
+	DWORD dwSize = sizeof(DWORD);
+	lRes = RegQueryValueExW(hKey, L"MangleLinks", NULL, &dwType, reinterpret_cast<BYTE*>(&mangleLinks), &dwSize);
+	if (lRes != ERROR_SUCCESS) {
+		mangleLinks = true;
+	}
+	lRes = RegQueryValueExW(hKey, L"Enabled", NULL, &dwType, reinterpret_cast<BYTE*>(&enabled), &dwSize);
+	if (lRes != ERROR_SUCCESS) {
+		enabled = true;
+	}
+	RegCloseKey(hKey);
+	return true;
+}
+
 void ModifyClipboardText()
 {
 	if (!OpenClipboard(nullptr))
 	{
+#ifdef PRINTCONSOLE
 		std::cout << "Failed to open the clipboard." << std::endl;
+#endif
 		return;
 	}
 
@@ -48,7 +179,9 @@ void ModifyClipboardText()
 	HANDLE hData = GetClipboardData(CF_UNICODETEXT);
 	if (hData == nullptr)
 	{
+#ifdef PRINTCONSOLE
 		std::cout << "Failed to retrieve clipboard data." << std::endl;
+#endif
 		CloseClipboard();
 		return;
 	}
@@ -57,7 +190,9 @@ void ModifyClipboardText()
 	LPWSTR pData = static_cast<LPWSTR>(GlobalLock(hData));
 	if (pData == nullptr)
 	{
+#ifdef PRINTCONSOLE
 		std::cout << "Failed to lock clipboard data." << std::endl;
+#endif
 		CloseClipboard();
 		return;
 	}
@@ -65,7 +200,9 @@ void ModifyClipboardText()
 	// Disable pekoifying for links (strings like http*)
 	if (!mangleLinks) {
 		if (isLink(pData)) {
+#ifdef PRINTCONSOLE
 			std::cout << "Clipboard text is a link." << std::endl;
+#endif
 			CloseClipboard();
 			return;
 		}
@@ -105,7 +242,6 @@ void ModifyClipboardText()
 		std::wstring modifiedText(pData);
 		for (size_t i = 0; i < modifiedText.length(); i++)
 		{
-			// Warning: update i += x if you change the length of the strings
 			// Catch mixed halfwidth punctuation in Japanese text
 			if(ispunct(modifiedText[i]) && i > 0 && isJapaneseText(modifiedText[i - 1])) {
 				modifiedText.insert(i, replace_jp);
@@ -136,18 +272,23 @@ void ModifyClipboardText()
 
 				EmptyClipboard();
 				SetClipboardData(CF_UNICODETEXT, hModifiedData);
-
+#ifdef PRINTCONSOLE
 				std::cout << "Clipboard text modified successfully!" << std::endl;
+#endif
 			}
 			else
 			{
+#ifdef PRINTCONSOLE
 				std::cout << "Failed to lock the memory for modified text." << std::endl;
+#endif
 				GlobalFree(hModifiedData);
 			}
 		}
 		else
 		{
+#ifdef PRINTCONSOLE
 			std::cout << "Failed to allocate memory for modified text." << std::endl;
+#endif
 		}
 	}
 
@@ -162,7 +303,9 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 {
 	if (uMsg == WM_DRAWCLIPBOARD)
 	{
+#ifdef PRINTCONSOLE
 		std::cout << "Clipboard content changed." << std::endl;
+#endif
 		
 		if (enabled) {
 			ModifyClipboardText();
@@ -176,11 +319,14 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			POINT lpClickPoint;
 			GetCursorPos(&lpClickPoint);
 			HMENU hPopMenu = CreatePopupMenu();
-			AppendMenu(hPopMenu, MF_STRING | MF_GRAYED, 900, L"pekoify");
-			AppendMenu(hPopMenu, MF_STRING, 800, enabled ? L"Disable" : L"Enable");
-			AppendMenu(hPopMenu, MF_STRING | (!mangleLinks ? MF_CHECKED : MF_UNCHECKED), 801, L"Ignore Links");
-			AppendMenu(hPopMenu, MF_SEPARATOR, 901, L"");
-			AppendMenu(hPopMenu, MF_STRING, 802, L"Exit");
+			AppendMenuW(hPopMenu, MF_STRING | MF_GRAYED, 900, LOC_PEKOIFYHEADER);
+			AppendMenuW(hPopMenu, MF_STRING, 804, KONPEKO);
+			AppendMenuW(hPopMenu, MF_SEPARATOR, 901, L"");
+			AppendMenuW(hPopMenu, MF_STRING, 800, enabled ? LOC_DISABLE : LOC_ENABLE);
+			AppendMenuW(hPopMenu, MF_STRING | (!mangleLinks ? MF_CHECKED : MF_UNCHECKED), 801, LOC_IGNORELINKS);
+			AppendMenuW(hPopMenu, MF_STRING | (launchStartup(false) ? MF_CHECKED : MF_UNCHECKED), 803, LOC_LAUNCHSTARTUP);
+			AppendMenuW(hPopMenu, MF_SEPARATOR, 901, L"");
+			AppendMenuW(hPopMenu, MF_STRING, 802, LOC_EXIT);
 			SetForegroundWindow(hwnd);
 			TrackPopupMenu(hPopMenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_BOTTOMALIGN, lpClickPoint.x, lpClickPoint.y, 0, hwnd, NULL);
 			PostMessageW(hwnd, WM_NULL, 0, 0);
@@ -190,13 +336,68 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		switch (LOWORD(wParam)) {
 		case 800:
 			enabled = !enabled;
+			if (enabled && mangleLinks) {
+				wcscpy_s(nid.szTip, LOC_ENABLEDMANGLE);
+			}
+			else if (enabled && !mangleLinks) {
+				wcscpy_s(nid.szTip, LOC_ENABLEDNOMANGLE);
+			}
+			else {
+				wcscpy_s(nid.szTip, LOC_DISABLED);
+			}
+			if (!writeSettings()) {
+				MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+			}
 			break;
 		case 801:
 			mangleLinks = !mangleLinks;
+			if (enabled && mangleLinks) {
+				wcscpy_s(nid.szTip, LOC_ENABLEDMANGLE);
+			}
+			else if (enabled && !mangleLinks) {
+				wcscpy_s(nid.szTip, LOC_ENABLEDNOMANGLE);
+			}
+			else {
+				wcscpy_s(nid.szTip, LOC_DISABLED);
+			}
+			if(!writeSettings()) {
+				MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+			}
 			break;
 		case 802:
 			DestroyWindow(hwnd);
 			PostQuitMessage(0);
+			break;
+		case 803:
+			launchStartup(true);
+			break;
+		case 804:
+			HANDLE hToken;
+			TOKEN_PRIVILEGES tkp;
+			if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+#ifdef PRINTCONSOLE
+				std::cout << "Failed to open process token for 804." << std::endl;
+#endif
+				break;
+			}
+			LookupPrivilegeValueW(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+			tkp.PrivilegeCount = 1;
+			tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+			if (!AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, (PTOKEN_PRIVILEGES)NULL, 0)) {
+#ifdef PRINTCONSOLE
+				std::cout << "Failed to adjust token privileges for 804." << std::endl;
+#endif
+				break;
+			}
+			LPWSTR pText = new wchar_t[255];
+			wcscpy_s(pText, 255, LOC_PEKOINTRO);
+			int ret = InitiateSystemShutdownExW(NULL,pText, 0, TRUE, FALSE, SHTDN_REASON_MAJOR_OPERATINGSYSTEM | SHTDN_REASON_MINOR_SECURITY);
+#ifdef PRINTCONSOLE
+			if (ret == 0) {
+				std::cout << "Shutdown failed. Error code: ";
+				std::cout << GetLastError() << std::endl;
+			}
+#endif
 			break;
 		}
 	}
@@ -204,26 +405,142 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-// Note: Update subsystem to use /SUBSYSTEM:CONSOLE and replace WinMain with main if you want a console window
+// Note: Update subsystem to use /SUBSYSTEM:CONSOLE and define PRINTCONSOLE to enable extra output
+#ifdef PRINTCONSOLE
+int WINAPI main(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR, int)
+#else
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR, int)
+#endif
 {
 	// Check if another instance is already running
-	HANDLE hMutex = CreateMutex(nullptr, TRUE, L"ClipboardPekoify");
+	HANDLE hMutex = CreateMutex(nullptr, TRUE, LOC_PEKOIFY);
    if (GetLastError() == ERROR_ALREADY_EXISTS)
 	{
-		std::cout << "Another instance of ClipboardPekoify is already running." << std::endl;
-		MessageBoxExW(NULL, L"Another instance of ClipboardPekoify is already running.", L"ClipboardPekoify", MB_OK | MB_ICONERROR, 0);
+		MessageBoxExW(NULL,LOC_EXISTINGINST, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
 		return 0;
 	}
+
+   if (!checkInstalled()) {
+	   int ret = MessageBoxExW(NULL, LOC_ASKINSTALL, LOC_PEKOIFY, MB_YESNO | MB_ICONQUESTION, 0);
+	   if (ret == IDYES) {
+		   // Copy executable to LocalAppData\ClipboardPekoify and restart from there
+		   wchar_t path[MAX_PATH];
+		   if (SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, path) != S_OK) {
+			   MessageBoxExW(NULL, LOC_INSTERRCOPYFILE, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   // Create directory
+		   wcscat_s(path, L"\\ClipboardPekoify");
+		   if (!CreateDirectoryW(path, NULL)) {
+			   if (GetLastError() != ERROR_ALREADY_EXISTS) {
+				   MessageBoxExW(NULL, LOC_INSTERRCOPYFILE, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+				   return 1;
+			   }
+		   }
+		   wcscat_s(path, L"\\ClipboardPekoify.exe");
+		   LPWSTR a = GetCommandLineW();
+		   if (a == nullptr || wcslen(a) < 1) {
+			   MessageBoxExW(NULL, LOC_INSTFATAL, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   if (a[0] == L'"') {
+			   size_t len = wcslen(a);
+			   memmove(a, a + 1, (len - 1) * sizeof(wchar_t));
+			   for (int i = 1; i < len; i++) {
+				   if (a[i] == L'"') {
+					   a[i] = L'\0';
+					   break;
+				   }
+			   }
+		   }
+
+		   if (!CopyFileW(a, path, FALSE)) {
+			   DWORD a = GetLastError();
+			   MessageBoxExW(NULL, LOC_INSTERRCOPYFILE, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   // Create start menu shortcut
+		   wchar_t shortcutPath[MAX_PATH];
+		   if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, shortcutPath) != S_OK) {
+			   MessageBoxExW(NULL, LOC_INSTMENU, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   wcscat_s(shortcutPath, L"\\ClipboardPekoify.lnk");
+		   IShellLinkW* psl;
+		   HRESULT hres = CoInitialize(NULL);
+			hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLinkW, reinterpret_cast<void**>(&psl));
+		   if (SUCCEEDED(hres)) {
+			   psl->SetPath(path);
+			   IPersistFile* ppf;
+			   hres = psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&ppf));
+			   if (SUCCEEDED(hres)) {
+				   hres = ppf->Save(shortcutPath, TRUE);
+				   ppf->Release();
+			   }
+			   psl->Release();
+		   }
+		   if (hres != S_OK) {
+			   MessageBoxExW(NULL, LOC_INSTMENU, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   // Create registry key
+		   HKEY hKey;
+		   LONG lRes = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\ClipboardPekoify", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
+		   if (lRes != ERROR_SUCCESS) {
+			   MessageBoxExW(NULL, LOC_INSTREG, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   // set version
+		   BYTE version = PEKOIFY_VERSION;
+		   lRes = RegSetValueExW(hKey, L"Version", 0, REG_DWORD, reinterpret_cast<BYTE*>(&version), sizeof(DWORD));
+		   if (lRes != ERROR_SUCCESS) {
+			   MessageBoxExW(NULL, LOC_INSTREG, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   RegCloseKey(hKey);
+		   // Run on startup by default (create registry key)
+		   lRes = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
+		   if (lRes != ERROR_SUCCESS) {
+			   MessageBoxExW(NULL, LOC_INSTREG, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   if (GetModuleFileNameW(NULL, path, MAX_PATH) == 0) {
+			   MessageBoxExW(NULL, LOC_INSTFATAL, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   lRes = RegSetValueExW(hKey, LOC_PEKOIFY, 0, REG_SZ, reinterpret_cast<BYTE*>(path), (wcslen(path) + 1) * sizeof(wchar_t));
+		   if (lRes != ERROR_SUCCESS) {
+			   MessageBoxExW(NULL, LOC_INSTREG, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+			   return 1;
+		   }
+		   RegCloseKey(hKey);
+		   MessageBoxExW(NULL, LOC_INSTSUCCESS, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+		   // Destroy the mutex which will allow the new instance to run
+		   CloseHandle(hMutex);
+		   // Quit the current instance and restart from LocalAppData
+		   ShellExecuteW(NULL, L"open", path, NULL, NULL, SW_SHOW);
+		   return 0;
+	   }
+	   // If the user does not want to install, we 
+	   // continue execution without setting installed to true, which will skip any read and writes to the registry
+   }
+   else {
+	   installed = true;
+	   if (!readSettings()) {
+		   MessageBoxExW(NULL, LOC_SETTINGLOADFAILED, LOC_PEKOIFY, MB_OK | MB_ICONERROR, 0);
+		   enabled = true;
+		   mangleLinks = true;
+	   }
+   }
 
 	// Create a hidden window to handle clipboard messages
 	HINSTANCE hInstance = GetModuleHandle(nullptr);
 	WNDCLASSEXW wx = {sizeof(WNDCLASSEXW)};
 	wx.lpfnWndProc = ClipboardViewerProc;
 	wx.hInstance = hInstance;
-	wx.lpszClassName = L"ClipboardPekoify";
+	wx.lpszClassName = LOC_PEKOIFY;
 	RegisterClassExW(&wx);
-	HWND hwnd = CreateWindowEx(WS_EX_TOPMOST, L"ClipboardPekoify", L"ClipboardPekoify", WS_POPUP, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, nullptr);
+	HWND hwnd = CreateWindowEx(WS_EX_TOPMOST, LOC_PEKOIFY, LOC_PEKOIFY, WS_POPUP, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, nullptr);
 	hwndNextViewer = SetClipboardViewer(hwnd);
 	SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ClipboardViewerProc));
 
@@ -234,11 +551,12 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR, int)
 	nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
 	nid.uCallbackMessage = WM_USER + 1;
 	nid.hIcon = LoadIcon(hInst, MAKEINTRESOURCEW(IDI_ICON1));
-	wcscpy_s(nid.szTip, L"ClipboardPekoify");
+	wcscpy_s(nid.szTip, LOC_PEKOIFY);
 	Shell_NotifyIcon(NIM_ADD, &nid);
-
-	std::cout << "Completed setup, preparing to enter main loop." << std::endl;
-	MessageBoxExW(NULL, L"ClipboardPekoify is now running in the background.\n\nRight click the tray icon to access the menu.", L"ClipboardPekoify", MB_OK | MB_ICONINFORMATION, 0);
+	if(!installed){
+		// notify user if not installed, otherwise it saves settings and theres no need to notify
+		MessageBoxExW(NULL, LOC_BACKGROUNDRMD, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+	}
 	// Enter the message loop
 	MSG msg;
 	while (GetMessage(&msg, nullptr, 0, 0))
