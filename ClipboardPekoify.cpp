@@ -345,8 +345,10 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			else {
 				wcscpy_s(nid.szTip, LOC_DISABLED);
 			}
-			if (!writeSettings()) {
-				MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+			if(installed) {
+				if (!writeSettings()) {
+					MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+				}
 			}
 			break;
 		case 801:
@@ -360,8 +362,10 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			else {
 				wcscpy_s(nid.szTip, LOC_DISABLED);
 			}
-			if(!writeSettings()) {
-				MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+			if (installed) {
+				if (!writeSettings()) {
+					MessageBoxExW(NULL, LOC_SETTINGSAVEFAILED, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+				}
 			}
 			break;
 		case 802:
@@ -369,6 +373,10 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			PostQuitMessage(0);
 			break;
 		case 803:
+			if (!installed) {
+				MessageBoxExW(NULL, LOC_NOTINSTALLED, LOC_PEKOIFY, MB_OK | MB_ICONINFORMATION, 0);
+				break;
+			}
 			launchStartup(true);
 			break;
 		case 804:

@@ -18,6 +18,7 @@
 #define LOC_ASKINSTALL  L"ClipboardPekoify is not installed.\nWould you like to install and run at startup?\n\nNote: If not, no settings will be written to the system and pekoify will run portably."
 #define LOC_BACKGROUNDRMD L"ClipboardPekoify is now running in the background.\n\nRight click the tray icon to access the menu."
 #define LOC_INSTSUCCESS L"ClipboardPekoify has been installed successfully."
+#define LOC_NOTINSTALLED L"ClipboardPekoify is not installed. Install Pekoify to use this setting."
 
 // Errors
 #define LOC_EXISTINGINST L"Another instance of ClipboardPekoify is already running."
