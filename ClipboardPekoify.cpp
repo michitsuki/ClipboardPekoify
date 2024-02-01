@@ -320,7 +320,7 @@ LRESULT CALLBACK ClipboardViewerProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			GetCursorPos(&lpClickPoint);
 			HMENU hPopMenu = CreatePopupMenu();
 			AppendMenuW(hPopMenu, MF_STRING | MF_GRAYED, 900, LOC_PEKOIFYHEADER);
-			AppendMenuW(hPopMenu, MF_STRING, 804, KONPEKO);
+			AppendMenuW(hPopMenu, MF_STRING | MF_GRAYED, 804, KONPEKO);
 			AppendMenuW(hPopMenu, MF_SEPARATOR, 901, L"");
 			AppendMenuW(hPopMenu, MF_STRING, 800, enabled ? LOC_DISABLE : LOC_ENABLE);
 			AppendMenuW(hPopMenu, MF_STRING | (!mangleLinks ? MF_CHECKED : MF_UNCHECKED), 801, LOC_IGNORELINKS);
